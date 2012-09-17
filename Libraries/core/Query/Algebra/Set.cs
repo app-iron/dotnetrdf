@@ -239,8 +239,8 @@ namespace VDS.RDF.Query.Algebra
         /// <returns></returns>
         public override ISet Join(ISet other)
         {
-            return new Set(this, other);
-            //return new VirtualSet(other, this);
+            //return new Set(this, other);
+            return new VirtualSet(other, this);
         }
 
         /// <summary>
@@ -535,7 +535,8 @@ namespace VDS.RDF.Query.Algebra
         /// <returns></returns>
         public override ISet Copy()
         {
-            return new VirtualSet(this);
+            return new Set(this);
+            //return new VirtualSet(this);
         }
 
         /// <summary>
