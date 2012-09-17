@@ -62,7 +62,7 @@ namespace VDS.RDF.Query.Algebra
         /// </summary>
         /// <param name="x">A Set</param>
         /// <param name="y">A Set</param>
-        internal Set(ISet x, ISet y)
+        public Set(ISet x, ISet y)
         {
             this._values = new Dictionary<string, INode>();
             foreach (String var in x.Variables)
@@ -82,20 +82,11 @@ namespace VDS.RDF.Query.Algebra
             }
         }
 
-        //internal Set(VirtualSet x)
-        //{
-        //    this._values = new Dictionary<string, INode>();
-        //    foreach (String var in x.Variables)
-        //    {
-        //        this._values.Add(var, x[var]);
-        //    }
-        //}
-
         /// <summary>
         /// Creates a new Set which is a copy of an existing Set
         /// </summary>
         /// <param name="x">Set to copy</param>
-        internal Set(ISet x)
+        public Set(ISet x)
         {
             this._values = new Dictionary<string, INode>();
             foreach (String var in x.Variables)
@@ -108,7 +99,7 @@ namespace VDS.RDF.Query.Algebra
         /// Creates a new Set from a SPARQL Result
         /// </summary>
         /// <param name="result">Result</param>
-        internal Set(SparqlResult result)
+        public Set(SparqlResult result)
         {
             this._values = new Dictionary<string, INode>();
             foreach (String var in result.Variables)
@@ -121,7 +112,7 @@ namespace VDS.RDF.Query.Algebra
         /// Creates a new Set from a Binding Tuple
         /// </summary>
         /// <param name="tuple">Tuple</param>
-        internal Set(BindingTuple tuple)
+        public Set(BindingTuple tuple)
         {
             this._values = new Dictionary<string, INode>();
             foreach (KeyValuePair<String, PatternItem> binding in tuple.Values)
