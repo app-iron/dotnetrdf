@@ -82,7 +82,7 @@ namespace VDS.RDF.Query.Algebra
             }
         }
 
-        //internal Set(JoinedSet x)
+        //internal Set(VirtualSet x)
         //{
         //    this._values = new Dictionary<string, INode>();
         //    foreach (String var in x.Variables)
@@ -240,7 +240,7 @@ namespace VDS.RDF.Query.Algebra
         public override ISet Join(ISet other)
         {
             return new Set(this, other);
-            //return new JoinedSet(other, this);
+            //return new VirtualSet(other, this);
         }
 
         /// <summary>
@@ -250,7 +250,7 @@ namespace VDS.RDF.Query.Algebra
         public override ISet Copy()
         {
             return new Set(this);
-            //return new JoinedSet(this);
+            //return new VirtualSet(this);
         }
 
         /// <summary>
@@ -290,34 +290,28 @@ namespace VDS.RDF.Query.Algebra
         }
     }
 
-#if EXPERIMENTAL
-
     /// <summary>
     /// Represents one possible set of values which is a solution to the query where those values are the result of joining one or more possible sets
     /// </summary>
-    public sealed class JoinedSet
-        : BaseSet, IEquatable<JoinedSet>
+    /// <remarks>
+    /// Delays the memory copying and materialisation of the join as late as possible
+    /// </remarks>
+    public sealed class VirtualSet
+        : BaseSet, IEquatable<VirtualSet>
     {
         private List<ISet> _sets = new List<ISet>();
-        private bool _added = false;
-        private Dictionary<String, INode> _cache = new Dictionary<string, INode>();
+        private bool _materialized = false;
+        private Dictionary<String, INode> _values = new Dictionary<string, INode>();
 
         /// <summary>
         /// Creates a Joined Set
         /// </summary>
         /// <param name="x">Set</param>
         /// <param name="y">Another Set</param>
-        public JoinedSet(ISet x, ISet y)
+        public VirtualSet(ISet x, ISet y)
         {
             this._sets.Add(x);
             this._sets.Add(y);
-        }
-
-        public JoinedSet(ISet x, JoinedSet y)
-        {
-            this._sets.Add(x);
-            this._sets.AddRange(y._sets);
-            this._cache = y._cache;
         }
 
         /// <summary>
@@ -325,29 +319,49 @@ namespace VDS.RDF.Query.Algebra
         /// </summary>
         /// <param name="x">Set</param>
         /// <param name="ys">Other Set(s)</param>
-        internal JoinedSet(ISet x, IEnumerable<ISet> ys)
+        internal VirtualSet(ISet x, IEnumerable<ISet> ys)
         {
             this._sets.Add(x);
             this._sets.AddRange(ys);
         }
 
         /// <summary>
-        /// Creates a Joined Set which is simply a copy of another set
+        /// Creates a Virtual Set which is simply a copy of another set
         /// </summary>
         /// <param name="x">Set</param>
-        internal JoinedSet(ISet x)
+        internal VirtualSet(ISet x)
         {
             this._sets.Add(x);
         }
 
         /// <summary>
-        /// Creates a Joined Set
+        /// Materialises the virtual set into memory by copying
         /// </summary>
-        /// <param name="x">Set</param>
-        internal JoinedSet(JoinedSet x)
+        private void Materialise()
         {
-            this._sets.AddRange(x._sets);
-            this._cache = x._cache;
+            //Note that we don't clean up the current state of the dictionary as that will already contain
+            //an accurate cache of values that have been looked up
+            foreach (ISet s in this._sets)
+            {
+                foreach (String var in s.Variables)
+                {
+                    INode temp;
+                    if (this._values.TryGetValue(var, out temp))
+                    {
+                        //Only replace a value already copied from another set 
+                        //if the value copied so far was a null
+                        if (temp == null) this._values[var] = s[var];
+                    }
+                    else
+                    {
+                        //Otherwise not yet copied this variable
+                        this._values.Add(var, temp);
+                    }
+                }
+            }
+            this._sets.Clear();
+            this._sets = null;
+            this._materialized = true;
         }
 
         /// <summary>
@@ -357,18 +371,20 @@ namespace VDS.RDF.Query.Algebra
         /// <param name="value">Value</param>
         public override void Add(string variable, INode value)
         {
-            //When we first add to the joined set we create a new empty set to make the adds into as
-            //we cannot add into the existing sets since they may well be being used in multiple
-            //places and trying to do so will break things horribly
-            if (!this._added)
+            //Materialise if necessary
+            if (!this._materialized)
             {
-                this._sets.Insert(0, new Set());
-                //this._sets.Add(new Set());
-                this._added = true;
+                this.Materialise();
             }
-            //Joined Sets are thus left associative so always add to the leftmost set
-            this._sets[0].Add(variable, value);
-            //this._sets[this._sets.Count - 1].Add(variable, value);
+            //Add the value
+            if (this._values.ContainsKey(variable))
+            {
+                this._values[variable] = value;
+            }
+            else
+            {
+                this._values.Add(variable, value);
+            }
         }
 
         /// <summary>
@@ -378,7 +394,14 @@ namespace VDS.RDF.Query.Algebra
         /// <returns></returns>
         public override bool ContainsVariable(string variable)
         {
-            return this._sets.Any(s => s.ContainsVariable(variable));
+            if (this._materialized)
+            {
+                return this._values.ContainsKey(variable);
+            }
+            else
+            {
+                return this._sets.Any(s => s.ContainsVariable(variable));
+            }
         }
 
         /// <summary>
@@ -393,12 +416,29 @@ namespace VDS.RDF.Query.Algebra
         }
 
         /// <summary>
+        /// Gets whether the Set is minus compatible with a given set based on the given variables
+        /// </summary>
+        /// <param name="s">Set</param>
+        /// <param name="vars">Variables</param>
+        /// <returns></returns>
+        public override bool IsMinusCompatibleWith(ISet s, IEnumerable<string> vars)
+        {
+            return vars.Any(v => this[v] != null && this[v].Equals(s[v]));
+        }
+
+        /// <summary>
         /// Removes a Value for a Variable from the Set
         /// </summary>
         /// <param name="variable">Variable</param>
         public override void Remove(string variable)
         {
-            this._sets.ForEach(s => s.Remove(variable));
+            //Materialise if necessary
+            if (!this._materialized)
+            {
+                this.Materialise();
+            }
+            //Remove the value
+            this._values.Remove(variable);
         }
 
         /// <summary>
@@ -412,13 +452,20 @@ namespace VDS.RDF.Query.Algebra
             {
                 INode temp = null;
 
-                if (this._cache.TryGetValue(variable, out temp))
+                if (this._values.TryGetValue(variable, out temp))
                 {
-                    //Use cache wherever possible
+                    //Use our local dictionary wherever possible
                     return temp;
+                }
+                else if (this._materialized)
+                {
+                    //If we've materialized and the variable is not in our dictionary then it doesn't have a value in this
+                    //set so return null
+                    return null;
                 }
                 else
                 {
+                    //Otherwise search the inner sets for a value
                     int i = 0;
 
                     //Find the first set that has a value for the variable and return it
@@ -427,7 +474,8 @@ namespace VDS.RDF.Query.Algebra
                         temp = this._sets[i][variable];
                         if (temp != null)
                         {
-                            this._cache.Add(variable, temp);
+                            //Cache the retrieved value locally so we can re-use it
+                            this._values.Add(variable, temp);
                             return temp;
                         }
                         i++;
@@ -458,9 +506,16 @@ namespace VDS.RDF.Query.Algebra
         {
             get
             {
-                return (from s in this._sets
-                        from v in s.Variables
-                        select v).Distinct();
+                if (this._materialized)
+                {
+                    return this._values.Keys;
+                }
+                else
+                {
+                    return (from s in this._sets
+                            from v in s.Variables
+                            select v).Distinct();
+                }
             }
         }
 
@@ -471,16 +526,7 @@ namespace VDS.RDF.Query.Algebra
         /// <returns></returns>
         public override ISet Join(ISet other)
         {
-            //return new Set(this, other);
-            //if (this._sets.Count > 3)
-            //{
-            //    //After a certain point it is better to flatten
-            //    return new JoinedSet(other, new Set(this));
-            //}
-            //else
-            //{
-                return new JoinedSet(other, this);
-            //}
+            return new VirtualSet(other, this);
         }
 
         /// <summary>
@@ -489,8 +535,7 @@ namespace VDS.RDF.Query.Algebra
         /// <returns></returns>
         public override ISet Copy()
         {
-            //return new Set(this);
-            return new JoinedSet(this);
+            return new VirtualSet(this);
         }
 
         /// <summary>
@@ -522,11 +567,9 @@ namespace VDS.RDF.Query.Algebra
         /// </summary>
         /// <param name="other">Set to compare with</param>
         /// <returns></returns>
-        public bool Equals(JoinedSet other)
+        public bool Equals(VirtualSet other)
         {
             return this.Equals((ISet)other);
         }
     }
-    
-#endif
 }
