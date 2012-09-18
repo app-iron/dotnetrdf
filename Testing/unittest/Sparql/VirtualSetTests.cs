@@ -275,27 +275,18 @@ SELECT ?v
     OPTIONAL { ?o :q ?v }
 }";
             SparqlQuery q = this._parser.ParseFromString(query);
+            q.PartialResultsOnTimeout = false;
 
             Graph g = new Graph();
             g.LoadFromFile("data-opt.ttl");
             InMemoryDataset ds = new InMemoryDataset(g);
 
-            long current = Options.QueryExecutionTimeout;
-            try
-            {
-                Options.QueryExecutionTimeout = 0;
-
-                LeviathanQueryProcessor processor = new LeviathanQueryProcessor(ds);
-                SparqlResultSet results = processor.ProcessQuery(q) as SparqlResultSet;
-                if (results == null) Assert.Fail("Did not get a result set as expected");
-                Assert.AreEqual(6, results.Count);
-                INode temp;
-                Assert.AreEqual(4, results.Where(r => r.TryGetBoundValue("v", out temp)).Count());
-            }
-            finally
-            {
-                Options.QueryExecutionTimeout = current;
-            }
+            LeviathanQueryProcessor processor = new LeviathanQueryProcessor(ds);
+            SparqlResultSet results = processor.ProcessQuery(q) as SparqlResultSet;
+            if (results == null) Assert.Fail("Did not get a result set as expected");
+            Assert.AreEqual(6, results.Count);
+            INode temp;
+            Assert.AreEqual(4, results.Where(r => r.TryGetBoundValue("v", out temp)).Count());
         }
     }
 }
