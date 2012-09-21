@@ -36,10 +36,14 @@ terms.
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using SysConfig = System.Configuration;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Reflection;
+using VDS.RDF.Nodes;
 using VDS.RDF.Parsing;
+using VDS.RDF.Query.Operators;
+using SysConfig = System.Configuration;
 
 namespace VDS.RDF.Configuration
 {
@@ -59,9 +63,18 @@ namespace VDS.RDF.Configuration
         public const String ConfigurationNamespace = "http://www.dotnetrdf.org/configuration#";
 
         /// <summary>
-        /// QName Constants for configuration properties for use with the CreateConfigurationNode function
+        /// Constants for URI Schemes with special meaning within the Configuration API
+        /// </summary>
+        public const String UriSchemeAppSettings = "appsetting",
+                            UriSchemeConfigureOptions = "dotnetrdf-configure";
+
+        /// <summary>
+        /// URI Constants for configuration properties
         /// </summary>
         public const String PropertyType = ConfigurationNamespace + "type",
+                            PropertyImports = ConfigurationNamespace + "imports",
+                            PropertyConfigure = ConfigurationNamespace  + "configure",
+                            PropertyEnabled = ConfigurationNamespace + "enabled",
                             PropertyUser = ConfigurationNamespace + "user",
                             PropertyPassword = ConfigurationNamespace + "password",
                             PropertyCredentials = ConfigurationNamespace + "credentials",
@@ -90,6 +103,9 @@ namespace VDS.RDF.Configuration
                             //Properties for associating Stores and Graphs with other things
                             PropertyUsingStore = ConfigurationNamespace + "usingStore",
                             PropertyUsingGraph = ConfigurationNamespace + "usingGraph",
+                            //Properties for setting low level storage for Triple Stores and Graphs
+                            PropertyUsingTripleCollection = ConfigurationNamespace + "usingTripleCollection",
+                            PropertyUsingGraphCollection = ConfigurationNamespace + "usingGraphCollection",
                             //Properties for defining where data comes from
                             PropertyFromFile = ConfigurationNamespace + "fromFile",
                             PropertyFromEmbedded = ConfigurationNamespace + "fromEmbedded",
@@ -134,6 +150,7 @@ namespace VDS.RDF.Configuration
                             PropertyCacheDuration = ConfigurationNamespace + "cacheDuration",
                             PropertyCacheSliding = ConfigurationNamespace + "cacheSliding",
                             PropertyExpressionFactory = ConfigurationNamespace + "expressionFactory",
+                            PropertyFunctionFactory = ConfigurationNamespace + "propertyFunctionFactory",
                             PropertyDescribeAlgorithm = ConfigurationNamespace + "describeAlgorithm",
                             PropertyServiceDescription = ConfigurationNamespace + "serviceDescription",
                             PropertyQueryOptimiser = ConfigurationNamespace + "queryOptimiser",
@@ -149,36 +166,51 @@ namespace VDS.RDF.Configuration
                             ;
 
         /// <summary>
-        /// QName Constants for <strong>obsolete</strong> configuration properties for use with the CreateConfigurationNode function
+        /// URI Constants for <strong>obsolete unusable</strong> configuration properties 
         /// </summary>
         [Obsolete("Property is obsolete and no longer supported by the Configuration API", true)]
         public const String PropertySqlManager = ConfigurationNamespace + "sqlManager";
 
+        /// <summary>
+        /// URI Constants for <strong>obsolete usable</strong> configuration properties
+        /// </summary>
         [Obsolete(ConfigurationNamespace + "genericManager is considered deprecated, use dnr:storageProvider instead", false)]
         public const String PropertyGenericManager = ConfigurationNamespace + "genericManager";
 
         /// <summary>
-        /// QName Constants for configuration classes
+        /// URI Constants for configuration classes
         /// </summary>
         public const String ClassObjectFactory = ConfigurationNamespace + "ObjectFactory",
+                            //Classes for Triple Stores and Graphs and their associated low level storage
                             ClassTripleStore = ConfigurationNamespace + "TripleStore",
+                            ClassGraphCollection = ConfigurationNamespace + "GraphCollection",
                             ClassGraph = ConfigurationNamespace + "Graph",
+                            ClassTripleCollection = ConfigurationNamespace + "TripleCollection",
+                            //Classes for Storage Providers and Servers
+                            ClassStorageServer = ConfigurationNamespace + "StorageServer",
                             ClassStorageProvider = ConfigurationNamespace + "StorageProvider",
+                            //Classes for ASP.Net integration
                             ClassHttpHandler = ConfigurationNamespace + "HttpHandler",
+                            //Classes for SPARQL features
                             ClassSparqlEndpoint = ConfigurationNamespace + "SparqlEndpoint",
                             ClassSparqlQueryProcessor = ConfigurationNamespace + "SparqlQueryProcessor",
                             ClassSparqlUpdateProcessor = ConfigurationNamespace + "SparqlUpdateProcessor",
                             ClassSparqlHttpProtocolProcessor = ConfigurationNamespace + "SparqlHttpProtocolProcessor",
                             ClassSparqlExpressionFactory = ConfigurationNamespace + "SparqlExpressionFactory",
+                            ClassSparqlPropertyFunctionFactory = ConfigurationNamespace + "SparqlPropertyFunctionFactory",
                             ClassSparqlDataset = ConfigurationNamespace + "SparqlDataset",
                             ClassQueryOptimiser = ConfigurationNamespace + "QueryOptimiser",
                             ClassAlgebraOptimiser = ConfigurationNamespace + "AlgebraOptimiser",
+                            ClassSparqlOperator = ConfigurationNamespace + "SparqlOperator",
+                            //Classes for reasoners
                             ClassReasoner = ConfigurationNamespace + "Reasoner",
                             ClassOwlReasoner = ConfigurationNamespace + "OwlReasoner",
                             ClassProxy = ConfigurationNamespace + "Proxy",
+                            //Classes for Users and permissions
                             ClassUserGroup = ConfigurationNamespace + "UserGroup",
                             ClassUser = ConfigurationNamespace + "User",
                             ClassPermission = ConfigurationNamespace + "Permission",
+                            //Classes for Parsers and Serializers
                             ClassRdfParser = ConfigurationNamespace + "RdfParser",
                             ClassDatasetParser = ConfigurationNamespace + "DatasetParser",
                             ClassSparqlResultsParser = ConfigurationNamespace + "SparqlResultsParser",
@@ -194,7 +226,9 @@ namespace VDS.RDF.Configuration
         /// QName Constants for Default Types for some configuration classes
         /// </summary>
         public const String DefaultTypeTripleStore = "VDS.RDF.TripleStore",
+                            DefaultTypeGraphCollection  = "VDS.RDF.GraphCollection",
                             DefaultTypeGraph = "VDS.RDF.Graph",
+                            DefaultTypeTripleCollection = "VDS.RDF.TreeIndexedTripleCollection",
                             DefaultTypeSparqlQueryProcessor = "VDS.RDF.Query.LeviathanQueryProcessor",
                             DefaultTypeSparqlUpdateProcessor = "VDS.RDF.Update.LeviathanUpdateProcessor",
                             DefaultTypeSparqlHttpProtocolProcessor = "VDS.RDF.Update.Protocol.LeviathanProtocolProcessor",
@@ -204,16 +238,22 @@ namespace VDS.RDF.Configuration
 
         #region Member Variables
 
-        private static Dictionary<String, IUriNode> _nodeMap = new Dictionary<string,IUriNode>();
+        /// <summary>
+        /// Cache for loaded objects
+        /// </summary>
         private static Dictionary<CachedObjectKey, Object> _cache = new Dictionary<CachedObjectKey, object>();
-        private static NamespaceMapper _nsmap = new NamespaceMapper(true);
+
+        /// <summary>
+        /// Set of built-in object factories that are automatically registered and used
+        /// </summary>
         private static List<IObjectFactory> _factories = new List<IObjectFactory>()
         {
             //Default Data Factories
             new GraphFactory(),
             new StoreFactory(),
+            new CollectionFactory(),
             //Default Manager Factories
-            new GenericManagerFactory(),
+            new StorageFactory(),
             new DatasetFactory(),
             //Endpoint Factories
             new SparqlEndpointFactory(),
@@ -234,34 +274,201 @@ namespace VDS.RDF.Configuration
             new OptimiserFactory(),
             new ReasonerFactory(),
             new ExpressionFactoryFactory(),
+            new PropertyFunctionFactoryFactory(),
+            new OperatorFactory(),
             //ObjectFactory Factory
             new ObjectFactoryFactory(),
             //Parser and Writer Factories
             new ParserFactory(),
             new WriterFactory()
         };
+        /// <summary>
+        /// Path resolver
+        /// </summary>
         private static IPathResolver _resolver = null;
 
         #endregion
 
+        #region Graph Loading and Auto-Configuration
+
+#if !NO_SYNC_HTTP
+
         /// <summary>
-        /// Registers an Object Factory with the Configuration Loader
+        /// Loads a Configuration Graph and applies auto-configuration
         /// </summary>
-        /// <param name="factory">Object Factory</param>
-        public static void AddObjectFactory(IObjectFactory factory)
+        /// <param name="u">URI to load from</param>
+        /// <returns></returns>
+        public static IGraph LoadConfiguration(Uri u)
         {
-            Type loaderType = factory.GetType();
-            if (!_factories.Any(l => l.GetType().Equals(loaderType)))
-            {
-                _factories.Add(factory);
-            }
+            return ConfigurationLoader.LoadConfiguration(u, true);
         }
 
         /// <summary>
-        /// Given a Configuration Graph will detect Object Factories defined in the Graph and add them to the list of available factories
+        /// Loads a Configuration Graph and applies auto-configuration if desired
+        /// </summary>
+        /// <param name="u">URI to load from</param>
+        /// <param name="autoConfigure">Whether to apply auto-configuration</param>
+        /// <returns></returns>
+        public static IGraph LoadConfiguration(Uri u, bool autoConfigure)
+        {
+            Graph g = new Graph();
+            UriLoader.Load(g, u);
+            return ConfigurationLoader.LoadCommon(g, g.CreateUriNode(u), autoConfigure);
+        }
+
+#endif
+
+        /// <summary>
+        /// Loads a Configuration Graph and applies auto-configuration
+        /// </summary>
+        /// <param name="file">File to load from</param>
+        /// <returns></returns>
+        public static IGraph LoadConfiguration(String file)
+        {
+            return ConfigurationLoader.LoadConfiguration(file, true);
+        }
+
+        /// <summary>
+        /// Loads a Configuration Graph and applies auto-configuration if desired
+        /// </summary>
+        /// <param name="file">File to load from</param>
+        /// <param name="autoConfigure">Whether to apply auto-configuration</param>
+        /// <returns></returns>
+        public static IGraph LoadConfiguration(String file, bool autoConfigure)
+        {
+            Graph g = new Graph();
+            FileLoader.Load(g, file);
+            return ConfigurationLoader.LoadCommon(g, new INode[] { g.CreateLiteralNode(file), g.CreateLiteralNode(Path.GetFileName(file)) }, autoConfigure);
+        }
+
+        /// <summary>
+        /// Loads a Configuration Graph and applies auto-configuration
+        /// </summary>
+        /// <param name="resource">Embedded Resource to load</param>
+        /// <returns></returns>
+        public static IGraph LoadEmbeddedConfiguration(String resource)
+        {
+            return ConfigurationLoader.LoadEmbeddedConfiguration(resource, true);
+        }
+
+        /// <summary>
+        /// Loads a Configuration Graph and applies auto-configuration if desired
+        /// </summary>
+        /// <param name="resource">Embedded Resource to load</param>
+        /// <param name="autoConfigure">Whether to apply auto-configuration</param>
+        /// <returns></returns>
+        public static IGraph LoadEmbeddedConfiguration(String resource, bool autoConfigure)
+        {
+            Graph g = new Graph();
+            EmbeddedResourceLoader.Load(g, resource);
+            return ConfigurationLoader.LoadCommon(g, g.CreateLiteralNode(resource), autoConfigure);
+        }
+
+        /// <summary>
+        /// Common loader for Configuration Graphs, handles the resolution of dnr:imports and applies the auto-configuration if selected
+        /// </summary>
+        /// <param name="g"></param>
+        /// <param name="autoConfigure"></param>
+        /// <returns></returns>
+        private static IGraph LoadCommon(IGraph g, INode source, bool autoConfigure)
+        {
+            return ConfigurationLoader.LoadCommon(g, source.AsEnumerable(), autoConfigure);
+        }
+
+        /// <summary>
+        /// Common loader for Configuration Graphs, handles the resolution of dnr:imports and applies the auto-configuration if selected
+        /// </summary>
+        /// <param name="g"></param>
+        /// <param name="autoConfigure"></param>
+        /// <returns></returns>
+        private static IGraph LoadCommon(IGraph g, IEnumerable<INode> sources, bool autoConfigure)
+        {
+            //Add initial sources to already imported list
+            HashSet<INode> imported = new HashSet<INode>();
+            foreach (INode source in sources)
+            {
+                imported.Add(source);
+            }
+
+            //Find initial imports
+            INode imports = g.CreateUriNode(UriFactory.Create(PropertyImports));
+            Queue<INode> importQueue = new Queue<INode>();
+            foreach (INode importData in g.GetTriplesWithPredicate(imports).Select(t => t.Object))
+            {
+                importQueue.Enqueue(importData);
+            }
+
+            while (importQueue.Count > 0)
+            {
+                //Load data from imported configuration graph
+                INode importData = importQueue.Dequeue();
+                Graph data = new Graph();
+                switch (importData.NodeType)
+                {
+#if !NO_SYNC_HTTP
+                    case NodeType.Uri:
+                        importData = ConfigurationLoader.ResolveAppSetting(g, importData);
+                        if (!imported.Contains(importData))
+                        {
+                            UriLoader.Load(data, ((IUriNode)importData).Uri);
+                            imported.Add(importData);
+                        }
+                        break;
+#endif
+                    case NodeType.Literal:
+                        if (!imported.Contains(importData))
+                        {
+                            FileLoader.Load(data, ConfigurationLoader.ResolvePath(((ILiteralNode)importData).Value));
+                            imported.Add(importData);
+                        }
+                        break;
+
+                    default:
+                        throw new DotNetRdfConfigurationException("Invalid dnr:imports target " + importData.ToString() + ", dnr:imports may only be used to point to an object which is a URI/Literal.  If sing Silverlight only Literals are currently permitted.");
+                }
+
+                //Scan for nested imports
+                foreach (INode nestedImport in data.GetTriplesWithPredicate(imports).Select(t => t.Object))
+                {
+                    if (!imported.Contains(nestedImport)) importQueue.Enqueue(nestedImport);
+                }
+                //Merge into final graph
+                g.Merge(data);
+            }
+
+            //Apply auto-configuration if requested
+            if (autoConfigure) ConfigurationLoader.AutoConfigure(g);
+
+            return g;
+        }
+
+        /// <summary>
+        /// Given a Configuration Graph applies all available auto-configuration based on the contents of the graph
         /// </summary>
         /// <param name="g">Configuration Graph</param>
+        public static void AutoConfigure(IGraph g)
+        {
+            ConfigurationLoader.AutoConfigureObjectFactories(g);
+            ConfigurationLoader.AutoConfigureReadersAndWriters(g);
+            ConfigurationLoader.AutoConfigureSparqlOperators(g);
+            ConfigurationLoader.AutoConfigureStaticOptions(g);
+        }
+
+        /// <summary>
+        /// Given a Configuration Graph will detect and configure Object Factories defined in the configuration
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        [Obsolete("This method is deprecated, use the new method name AutoConfigureObjectFactories which has the same functionality", false)]
         public static void AutoDetectObjectFactories(IGraph g)
+        {
+            ConfigurationLoader.AutoConfigureObjectFactories(g);
+        }
+
+        /// <summary>
+        /// Given a Configuration Graph will detect and configure Object Factories defined in the configuration
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        public static void AutoConfigureObjectFactories(IGraph g)
         {
             IUriNode rdfType = g.CreateUriNode(UriFactory.Create(RdfSpecsHelper.RdfType));
             INode objLoader = g.CreateUriNode(UriFactory.Create(ClassObjectFactory));
@@ -284,7 +491,113 @@ namespace VDS.RDF.Configuration
         /// Given a Configuration Graph will detect Readers and Writers for RDF and SPARQL syntaxes and register them with <see cref="MimeTypesHelper">MimeTypesHelper</see>.  This will cause the library defaults to be overridden where appropriate.
         /// </summary>
         /// <param name="g">Configuration Graph</param>
+        [Obsolete("This method is deprecated, use the new method name AutoConfigureReadersAndWriters which has the same functionality", false)]
         public static void AutoDetectReadersAndWriters(IGraph g)
+        {
+            ConfigurationLoader.AutoConfigureReadersAndWriters(g);
+        }
+
+        /// <summary>
+        /// Given a Configuration Graph will detect and configure static options that are specified using the dnr:configure property with special &lt;dotnetrdf-configure:Class/Property&gt; subject URIs
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        /// <remarks>
+        /// <para>
+        /// An example of using this mechanism to configure a static option is as follows:
+        /// </para>
+        /// <pre>
+        /// &lt;dotnetrdf-configure:VDS.RDF.Options#UsePLinqEvaluation&gt; dnr:configure false .
+        /// </pre>
+        /// <para>
+        /// Class and property names must be fully qualified, to specify static options outside of dotNetRDF itself you can add an additional path segment with the assembly name after the initial configure keyword.  If the class/property does not exist or the value of the literal cannot be appropriately converted to the type of the property then an exception will be thrown.  If there is a problem setting the property (e.g. it does not have a public setter) then an exception will be thrown.
+        /// </para>
+        /// </remarks>
+        public static void AutoConfigureStaticOptions(IGraph g)
+        {
+            IUriNode dnrConfigure = g.CreateUriNode(UriFactory.Create(PropertyConfigure));
+
+            foreach (Triple t in g.GetTriplesWithPredicate(dnrConfigure))
+            {
+                if (t.Subject.NodeType == NodeType.Uri)
+                {
+                    Uri propertyUri = ((IUriNode)t.Subject).Uri;
+                    if (propertyUri.Scheme.Equals(UriSchemeConfigureOptions))
+                    {
+                        //Parse the Class and Property out of the URI
+                        String className = propertyUri.AbsolutePath;
+                        if (propertyUri.Fragment.Length <= 1) throw new DotNetRdfConfigurationException("Malformed Configure Options URI used as subject for a dnr:configure triple, <" + propertyUri.AbsoluteUri + "> is missing the fragment identifier to specify the property name");
+                        String propName = propertyUri.Fragment.Substring(1);
+
+                        //Get the Value we are setting to this property
+                        INode value = t.Object;
+
+                        //Get the type whose static option we are attempting to change
+                        Type type = Type.GetType(className);
+                        if (type == null) throw new DotNetRdfConfigurationException("Malformed Configure Options URI used as a subject for a dnr:configure triple, <" + propertyUri.AbsoluteUri + "> specifies a class '" + className + "' which could not be loaded.  Please ensure the type name is fully qualified");
+
+                        //Get the property in question
+                        PropertyInfo property = type.GetProperty(propName);
+                        if (property == null) throw new DotNetRdfConfigurationException("Malformed Configure Options URI used as a subject for a dnr:configure triple, <" + propertyUri.AbsoluteUri + "> specifies a property '" + propName + "' which does not exist or is not static");
+                        if (!property.GetSetMethod().IsStatic) throw new DotNetRdfConfigurationException("Malformed Configure Options URI used as a subject for a dnr:configure triple, <" + propertyUri.AbsoluteUri + "> specifies a property '" + propName + "' which is not static");
+                        Type valueType = property.PropertyType;
+                        try
+                        {
+                            IValuedNode valueNode = value.AsValuedNode();
+                            if (valueType.Equals(typeof(int)))
+                            {
+                                int intValue = (int)valueNode.AsInteger();
+                                property.SetValue(null, intValue, null);
+                            }
+                            else if (valueType.Equals(typeof(long)))
+                            {
+                                long longValue = valueNode.AsInteger();
+                                property.SetValue(null, longValue, null);
+                            }
+                            else if (valueType.Equals(typeof(bool)))
+                            {
+                                bool boolValue = valueNode.AsBoolean();
+                                property.SetValue(null, boolValue, null);
+                            }
+                            else if (valueType.Equals(typeof(String)))
+                            {
+                                property.SetValue(null, valueNode.AsString(), null);
+                            }
+                            else if (valueType.Equals(typeof(Uri)))
+                            {
+                                Uri uriValue = (value.NodeType == NodeType.Uri ? ((IUriNode)value).Uri : UriFactory.Create(valueNode.AsString()));
+                                property.SetValue(null, uriValue, null);
+                            }
+                            else if (valueType.IsEnum)
+                            {
+                                if (value.NodeType != NodeType.Literal) throw new DotNetRdfConfigurationException("Malformed dnf:configure triple - " + t.ToString() + " - the object must be a literal when the property being set has a enumeration type");
+                                Object enumVal = Enum.Parse(valueType, valueNode.AsString(), true);
+                                property.SetValue(null, enumVal, null);
+                            }
+                            else
+                            {
+                                throw new DotNetRdfConfigurationException("Configure Options URIs can currently only be used to configure static properties with int, long, bool, String, URI or enumeration typed values.  The URI <" + propertyUri.AbsoluteUri + "> points to a property with the unsupported type " + valueType.FullName);
+                            }
+                        }
+                        catch (DotNetRdfConfigurationException)
+                        {
+                            //Don't rewrap
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            //Rewrap as Configuration error
+                            throw new DotNetRdfConfigurationException("Unexpected error trying to set the static property identified by the Configure Options URI <" + propertyUri.AbsoluteUri + ">, please ensure that the lexical form of the value being set is valid for the property you are trying to set", ex);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Given a Configuration Graph will detect Readers and Writers for RDF and SPARQL syntaxes and register them with <see cref="MimeTypesHelper">MimeTypesHelper</see>.  This will cause the library defaults to be overridden where appropriate.
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        public static void AutoConfigureReadersAndWriters(IGraph g)
         {
             IUriNode rdfType = g.CreateUriNode(UriFactory.Create(RdfSpecsHelper.RdfType));
             INode desiredType = g.CreateUriNode(UriFactory.Create(ClassRdfParser));
@@ -301,7 +614,7 @@ namespace VDS.RDF.Configuration
                 {
                     //Get the formats to associate this with
                     mimeTypes = ConfigurationLoader.GetConfigurationArray(g, objNode, formatMimeType);
-                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Parser specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
+                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Parser specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
                     extensions = ConfigurationLoader.GetConfigurationArray(g, objNode, formatExtension);
 
                     //Register
@@ -309,7 +622,7 @@ namespace VDS.RDF.Configuration
                 }
                 else
                 {
-                    throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:RdfParser but failed to load as an object which implements the required IRdfReader interface");
+                    throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:RdfParser but failed to load as an object which implements the required IRdfReader interface");
                 }
             }
 
@@ -322,7 +635,7 @@ namespace VDS.RDF.Configuration
                 {
                     //Get the formats to associate this with
                     mimeTypes = ConfigurationLoader.GetConfigurationArray(g, objNode, formatMimeType);
-                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Parser specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
+                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Parser specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
                     extensions = ConfigurationLoader.GetConfigurationArray(g, objNode, formatExtension);
 
                     //Register
@@ -330,7 +643,7 @@ namespace VDS.RDF.Configuration
                 }
                 else
                 {
-                    throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:DatasetParser but failed to load as an object which implements the required IStoreReader interface");
+                    throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:DatasetParser but failed to load as an object which implements the required IStoreReader interface");
                 }
             }
 
@@ -343,7 +656,7 @@ namespace VDS.RDF.Configuration
                 {
                     //Get the formats to associate this with
                     mimeTypes = ConfigurationLoader.GetConfigurationArray(g, objNode, formatMimeType);
-                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Parser specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
+                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Parser specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
                     extensions = ConfigurationLoader.GetConfigurationArray(g, objNode, formatExtension);
 
                     //Register
@@ -351,7 +664,7 @@ namespace VDS.RDF.Configuration
                 }
                 else
                 {
-                    throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:SparqlResultsParser but failed to load as an object which implements the required ISparqlResultsReader interface");
+                    throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:SparqlResultsParser but failed to load as an object which implements the required ISparqlResultsReader interface");
                 }
             }
 
@@ -364,7 +677,7 @@ namespace VDS.RDF.Configuration
                 {
                     //Get the formats to associate this with
                     mimeTypes = ConfigurationLoader.GetConfigurationArray(g, objNode, formatMimeType);
-                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Writer specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
+                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Writer specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
                     extensions = ConfigurationLoader.GetConfigurationArray(g, objNode, formatExtension);
 
                     //Register
@@ -372,7 +685,7 @@ namespace VDS.RDF.Configuration
                 }
                 else
                 {
-                    throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:RdfWriter but failed to load as an object which implements the required IRdfWriter interface");
+                    throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:RdfWriter but failed to load as an object which implements the required IRdfWriter interface");
                 }
             }
 
@@ -385,7 +698,7 @@ namespace VDS.RDF.Configuration
                 {
                     //Get the formats to associate this with
                     mimeTypes = ConfigurationLoader.GetConfigurationArray(g, objNode, formatMimeType);
-                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Writer specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
+                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Writer specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
                     extensions = ConfigurationLoader.GetConfigurationArray(g, objNode, formatExtension);
 
                     //Register
@@ -393,7 +706,7 @@ namespace VDS.RDF.Configuration
                 }
                 else
                 {
-                    throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:DatasetWriter but failed to load as an object which implements the required IStoreWriter interface");
+                    throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:DatasetWriter but failed to load as an object which implements the required IStoreWriter interface");
                 }
             }
 
@@ -406,7 +719,7 @@ namespace VDS.RDF.Configuration
                 {
                     //Get the formats to associate this with
                     mimeTypes = ConfigurationLoader.GetConfigurationArray(g, objNode, formatMimeType);
-                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Writer specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
+                    if (mimeTypes.Length == 0) throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Writer specified by the Node '" + objNode.ToString() + "' is not associated with any MIME types");
                     extensions = ConfigurationLoader.GetConfigurationArray(g, objNode, formatExtension);
 
                     //Register
@@ -414,10 +727,46 @@ namespace VDS.RDF.Configuration
                 }
                 else
                 {
-                    throw new DotNetRdfConfigurationException("Auto-detection of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:SparqlResultsWriter but failed to load as an object which implements the required ISparqlResultsWriter interface");
+                    throw new DotNetRdfConfigurationException("Auto-configuration of Readers and Writers failed as the Node '" + objNode.ToString() + "' was stated to be rdf:type of dnr:SparqlResultsWriter but failed to load as an object which implements the required ISparqlResultsWriter interface");
                 }
             }
         }
+
+        /// <summary>
+        /// Given a Configuration Graph will detect and configure SPARQL Operators
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        public static void AutoConfigureSparqlOperators(IGraph g)
+        {
+            INode rdfType = g.CreateUriNode(UriFactory.Create(RdfSpecsHelper.RdfType)),
+                  operatorClass = g.CreateUriNode(UriFactory.Create(ClassSparqlOperator)),
+                  enabled = g.CreateUriNode(UriFactory.Create(PropertyEnabled));
+
+            foreach (Triple t in g.GetTriplesWithPredicateObject(rdfType, operatorClass))
+            {
+                Object temp = ConfigurationLoader.LoadObject(g, t.Subject);
+                if (temp is ISparqlOperator)
+                {
+                    bool enable = ConfigurationLoader.GetConfigurationBoolean(g, t.Subject, enabled, true);
+                    if (enable)
+                    {
+                        SparqlOperators.AddOperator((ISparqlOperator)temp);
+                    }
+                    else
+                    {
+                        SparqlOperators.RemoveOperatorByType((ISparqlOperator)temp);
+                    }
+                }
+                else
+                {
+                    throw new DotNetRdfConfigurationException("Auto-configuration of SPARQL Operators failed as the Operator specified by the Node '" + t.Subject.ToString() + "' does not implement the required ISparqlOperator interface");
+                }
+            }
+        }
+
+        #endregion
+
+        #region Object Loading
 
         /// <summary>
         /// Checks for circular references and throws an error if there is one
@@ -525,6 +874,20 @@ namespace VDS.RDF.Configuration
         }
 
         /// <summary>
+        /// Gets the first value given for the first found property of a given Object in the Configuration Graph
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        /// <param name="objNode">Object Node</param>
+        /// <param name="properties">Properties</param>
+        /// <returns>
+        /// First value given for the first property of the Object which is matched
+        /// </returns>
+        public static INode GetConfigurationNode(IGraph g, INode objNode, IEnumerable<INode> properties)
+        {
+            return properties.Select(p => ConfigurationLoader.GetConfigurationNode(g, objNode, p)).Where(n => n != null).FirstOrDefault();
+        }
+
+        /// <summary>
         /// Gets the String value or null of the first instance of a property for a given Object in the Configuration Graph where the value for the property is a Literal Node
         /// </summary>
         /// <param name="g">Configuration Graph</param>
@@ -562,6 +925,25 @@ namespace VDS.RDF.Configuration
         }
 
         /// <summary>
+        /// Gets the String value or null of the first instance of the first property for a given Object in the Configuration Graph where the value for the property is a Literal Node
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        /// <param name="objNode">Object Node</param>
+        /// <param name="properties">Property Nodes</param>
+        /// <returns>
+        /// <para>
+        /// String value of the first instance of the first property or a null if no values or not a literal value
+        /// </para>
+        /// <para>
+        /// If you want the String value regardless of Node type then use the <see cref="ConfigurationLoader.GetConfigurationValue">GetConfigurationValue</see> function instead
+        /// </para>
+        /// </returns>
+        public static String GetConfigurationString(IGraph g, INode objNode, IEnumerable<INode> properties)
+        {
+            return properties.Select(p => ConfigurationLoader.GetConfigurationString(g, objNode, p)).Where(s => s != null).FirstOrDefault();
+        }
+
+        /// <summary>
         /// Gets the String value or null of the first instance of a property for a given Object in the Configuration Graph
         /// </summary>
         /// <param name="g">Configuration Graph</param>
@@ -592,6 +974,18 @@ namespace VDS.RDF.Configuration
                 default:
                     return null;
             }
+        }
+
+        /// <summary>
+        /// Gets the String value or null of the first instance of the first property for a given Object in the Configuration Graph
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        /// <param name="objNode">Object Node</param>
+        /// <param name="properties">Property Nodes</param>
+        /// <returns></returns>
+        public static String GetConfigurationValue(IGraph g, INode objNode, IEnumerable<INode> properties)
+        {
+            return properties.Select(p => ConfigurationLoader.GetConfigurationValue(g, objNode, p)).Where(s => s != null).FirstOrDefault();
         }
 
         /// <summary>
@@ -635,6 +1029,42 @@ namespace VDS.RDF.Configuration
         }
 
         /// <summary>
+        /// Gets the Boolean value or a given default of the first instance of the first property for a given Object in the Configuration Graph
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        /// <param name="objNode">Object Node</param>
+        /// <param name="properties">Property Nodes</param>
+        /// <param name="defValue">Default Value to return if there is no valid boolean value</param>
+        /// <returns>
+        /// If there is a valid boolean value for any property then that is returned, in any other case the given <paramref name="defValue">Default Value</paramref> is returned
+        /// </returns>
+        public static bool GetConfigurationBoolean(IGraph g, INode objNode, IEnumerable<INode> properties, bool defValue)
+        {
+            foreach (INode property in properties)
+            {
+                INode n = g.GetTriplesWithSubjectPredicate(objNode, property).Select(t => t.Object).FirstOrDefault();
+                if (n == null) continue;
+
+                //Resolve AppSettings
+                if (n.NodeType != NodeType.Literal)
+                {
+                    n = ResolveAppSetting(g, n);
+                    if (n == null) continue;
+                }
+
+                if (n.NodeType == NodeType.Literal)
+                {
+                    bool temp;
+                    if (Boolean.TryParse(((ILiteralNode)n).Value, out temp))
+                    {
+                        return temp;
+                    }
+                }
+            }
+            return defValue;
+        }
+
+        /// <summary>
         /// Gets the 64 bit Integer value or a given default of the first instance of a property for a given Object in the Configuration Graph
         /// </summary>
         /// <param name="g">Configuration Graph</param>
@@ -675,6 +1105,42 @@ namespace VDS.RDF.Configuration
         }
 
         /// <summary>
+        /// Gets the 64 bit Integer value or a given default of the first instance of the first property for a given Object in the Configuration Graph
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        /// <param name="objNode">Object Node</param>
+        /// <param name="properties">Property Nodes</param>
+        /// <param name="defValue">Default Value to return if there is no valid boolean value</param>
+        /// <returns>
+        /// If there is a valid integer value for any property then that is returned, in any other case the given <paramref name="defValue">Default Value</paramref> is returned
+        /// </returns>
+        public static long GetConfigurationInt64(IGraph g, INode objNode, IEnumerable<INode> properties, long defValue)
+        {
+            foreach (INode property in properties)
+            {
+                INode n = g.GetTriplesWithSubjectPredicate(objNode, property).Select(t => t.Object).FirstOrDefault();
+                if (n == null) continue;
+
+                //Resolve AppSettings
+                if (n.NodeType != NodeType.Literal)
+                {
+                    n = ResolveAppSetting(g, n);
+                    if (n == null) continue;
+                }
+
+                if (n.NodeType == NodeType.Literal)
+                {
+                    long temp;
+                    if (Int64.TryParse(((ILiteralNode)n).Value, out temp))
+                    {
+                        return temp;
+                    }
+                }
+            }
+            return defValue;
+        }
+
+        /// <summary>
         /// Gets the 64 bit Integer value or a given default of the first instance of a property for a given Object in the Configuration Graph
         /// </summary>
         /// <param name="g">Configuration Graph</param>
@@ -712,6 +1178,42 @@ namespace VDS.RDF.Configuration
             {
                 return defValue;
             }
+        }
+
+        /// <summary>
+        /// Gets the 64 bit Integer value or a given default of the first instance of the first property for a given Object in the Configuration Graph
+        /// </summary>
+        /// <param name="g">Configuration Graph</param>
+        /// <param name="objNode">Object Node</param>
+        /// <param name="properties">Property Nodes</param>
+        /// <param name="defValue">Default Value to return if there is no valid boolean value</param>
+        /// <returns>
+        /// If there is a valid integer value for any property then that is returned, in any other case the given <paramref name="defValue">Default Value</paramref> is returned
+        /// </returns>
+        public static int GetConfigurationInt32(IGraph g, INode objNode, IEnumerable<INode> properties, int defValue)
+        {
+            foreach (INode property in properties)
+            {
+                INode n = g.GetTriplesWithSubjectPredicate(objNode, property).Select(t => t.Object).FirstOrDefault();
+                if (n == null) continue;
+
+                //Resolve AppSettings
+                if (n.NodeType != NodeType.Literal)
+                {
+                    n = ResolveAppSetting(g, n);
+                    if (n == null) continue;
+                }
+
+                if (n.NodeType == NodeType.Literal)
+                {
+                    int temp;
+                    if (Int32.TryParse(((ILiteralNode)n).Value, out temp))
+                    {
+                        return temp;
+                    }
+                }
+            }
+            return defValue;
         }
 
         /// <summary>
@@ -896,30 +1398,7 @@ namespace VDS.RDF.Configuration
                 String typeUri = declaredType.ToString();
                 if (typeUri.StartsWith(ConfigurationNamespace))
                 {
-                    typeUri = typeUri.Replace(ConfigurationNamespace, "dnr:");
-                    switch (typeUri)
-                    {
-                        case ClassGraph:
-                            return DefaultTypeGraph;
-                        case ClassSparqlHttpProtocolProcessor:
-                            return DefaultTypeSparqlHttpProtocolProcessor;
-                        case ClassSparqlQueryProcessor:
-                            return DefaultTypeSparqlQueryProcessor;
-                        case ClassSparqlUpdateProcessor:
-                            return DefaultTypeSparqlUpdateProcessor;
-                        case ClassTripleStore:
-                            return DefaultTypeTripleStore;
-                        case ClassUser:
-                            return typeof(System.Net.NetworkCredential).AssemblyQualifiedName;
-                        case ClassUserGroup:
-                            return DefaultTypeUserGroup;
-#if !NO_PROXY
-                        case ClassProxy:
-                            return typeof(System.Net.WebProxy).AssemblyQualifiedName;
-#endif
-                        default:
-                            return null;
-                    }
+                    return ConfigurationLoader.GetDefaultType(typeUri);
                 }
                 else
                 {
@@ -929,6 +1408,95 @@ namespace VDS.RDF.Configuration
             else
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to return the Default Type to load an Object as when there is no dnr:type property but there is a rdf:type property
+        /// </summary>
+        /// <param name="typeUri">Type URI declared by the rdf:type property</param>
+        /// <returns></returns>
+        public static String GetDefaultType(String typeUri)
+        {
+            switch (typeUri)
+            {
+                case ClassGraph:
+                    return DefaultTypeGraph;
+                case ClassGraphCollection:
+                    return DefaultTypeGraphCollection;
+                case ClassSparqlHttpProtocolProcessor:
+                    return DefaultTypeSparqlHttpProtocolProcessor;
+                case ClassSparqlQueryProcessor:
+                    return DefaultTypeSparqlQueryProcessor;
+                case ClassSparqlUpdateProcessor:
+                    return DefaultTypeSparqlUpdateProcessor;
+                case ClassTripleCollection:
+                    return DefaultTypeTripleCollection;
+                case ClassTripleStore:
+                    return DefaultTypeTripleStore;
+                case ClassUser:
+                    return typeof(System.Net.NetworkCredential).AssemblyQualifiedName;
+                case ClassUserGroup:
+                    return DefaultTypeUserGroup;
+#if !NO_PROXY
+                case ClassProxy:
+                    return typeof(System.Net.WebProxy).AssemblyQualifiedName;
+#endif
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to resolve special &lt;appsettings&gt; URIs into actual values
+        /// </summary>
+        /// <param name="g"></param>
+        /// <param name="n"></param>
+        /// <returns></returns>
+        /// <remarks>
+        /// <para>
+        /// These special URIs have the form &lt;appsetting:Key&gt; where <strong>Key</strong> is the key for an appSetting in your applications configuration file.  When used these URIs are resolved at load time into the actual values from your configuration file.  This allows you to avoid spreading configuration data over multiple files since you can specify things like connection settings in the Application Config file and then simply reference them in the dotNetRDF configuration file.
+        /// </para>
+        /// <para>
+        /// <strong>Warning: </strong> This feature is not supported in the Silverlight build 
+        /// </para>
+        /// </remarks>
+        public static INode ResolveAppSetting(IGraph g, INode n)
+        {
+#if SILVERLIGHT
+            return n;
+#else
+            if (n == null) return null;
+            if (n.NodeType != NodeType.Uri) return n;
+
+            Uri uri = ((IUriNode)n).Uri;
+            if (!uri.Scheme.Equals(UriSchemeAppSettings)) return n;
+
+            String strUri = uri.AbsoluteUri;
+            String key = strUri.Substring(strUri.IndexOf(':') + 1);
+            if (SysConfig.ConfigurationManager.AppSettings[key] == null)
+            {
+                return null;
+            }
+            else
+            {
+                return g.CreateLiteralNode(SysConfig.ConfigurationManager.AppSettings[key]);
+            }
+#endif
+        }
+
+        #endregion
+
+        /// <summary>
+        /// Registers an Object Factory with the Configuration Loader
+        /// </summary>
+        /// <param name="factory">Object Factory</param>
+        public static void AddObjectFactory(IObjectFactory factory)
+        {
+            Type loaderType = factory.GetType();
+            if (!_factories.Any(l => l.GetType().Equals(loaderType)))
+            {
+                _factories.Add(factory);
             }
         }
 
@@ -956,43 +1524,6 @@ namespace VDS.RDF.Configuration
         {
             if (_resolver == null) return path;
             return _resolver.ResolvePath(path);
-        }
-
-        /// <summary>
-        /// Attempts to resolve special &lt;appsettings&gt; URIs into actual values
-        /// </summary>
-        /// <param name="g"></param>
-        /// <param name="n"></param>
-        /// <returns></returns>
-        /// <remarks>
-        /// <para>
-        /// These special URIs have the form &lt;appsetting:Key&gt; where <strong>Key</strong> is the key for an appSetting in your applications configuration file.  When used these URIs are resolved at load time into the actual values from your configuration file.  This allows you to avoid spreading configuration data over multiple files since you can specify things like connection settings in the Application Config file and then simply reference them in the dotNetRDF configuration file.
-        /// </para>
-        /// <para>
-        /// <strong>Warning: </strong> This feature is not supported in the Silverlight build 
-        /// </para>
-        /// </remarks>
-        public static INode ResolveAppSetting(IGraph g, INode n)
-        {
-#if SILVERLIGHT
-            return n;
-#else
-            if (n == null) return null;
-            if (n.NodeType != NodeType.Uri) return n;
-
-            String uri = ((IUriNode)n).Uri.AbsoluteUri;
-            if (!uri.StartsWith("appsetting:")) return n;
-
-            String key = uri.Substring(uri.IndexOf(':') + 1);
-            if (SysConfig.ConfigurationManager.AppSettings[key] == null)
-            {
-                return null;
-            }
-            else
-            {
-                return g.CreateLiteralNode(SysConfig.ConfigurationManager.AppSettings[key]);
-            }
-#endif
         }
     }
 

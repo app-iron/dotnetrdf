@@ -43,8 +43,11 @@ namespace VDS.RDF.Configuration
     /// <summary>
     /// Factory class for producing Custom SPARQL Expression Factories from Configuration Graphs
     /// </summary>
-    public class ExpressionFactoryFactory : IObjectFactory
+    public class ExpressionFactoryFactory 
+        : IObjectFactory
     {
+        private Type _factoryType = typeof(ISparqlCustomExpressionFactory);
+
         /// <summary>
         /// Tries to load a SPARQL Custom Expression Factory based on information from the Configuration Graph
         /// </summary>
@@ -78,22 +81,8 @@ namespace VDS.RDF.Configuration
         /// <returns></returns>
         public bool CanLoadObject(Type t)
         {
-            Type icustfactory = typeof(ISparqlCustomExpressionFactory);
-
             //We can load any object which implements ISparqlCustomExpressionFactory and has a public unparameterized constructor
-            if (t.GetInterfaces().Any(i => i.Equals(icustfactory)))
-            {
-                ConstructorInfo c = t.GetConstructor(System.Type.EmptyTypes);
-                if (c != null)
-                {
-                    return c.IsPublic;
-                }
-                else
-                {
-                    return false;
-                }
-            }
-            return false;
+            return t.GetInterfaces().Contains(this._factoryType) && t.GetConstructors().Any(c => c.GetParameters().Length == 0 && c.IsPublic);
         }
     }
 }

@@ -38,6 +38,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+#if !NO_WEB
+using System.Web;
+#endif
 using VDS.RDF.Configuration;
 using VDS.RDF.Parsing;
 using VDS.RDF.Parsing.Handlers;
@@ -223,7 +226,7 @@ namespace VDS.RDF.Storage
             String retrievalUri = this._serviceUri;
             if (graphUri != null && !graphUri.Equals(String.Empty))
             {
-                retrievalUri += "?graph=" + Uri.EscapeDataString(graphUri);
+                retrievalUri += "?graph=" + HttpUtility.UrlEncode(graphUri);
             }
             else
             {
@@ -295,7 +298,7 @@ namespace VDS.RDF.Storage
             String lookupUri = this._serviceUri;
             if (graphUri != null && !graphUri.Equals(String.Empty))
             {
-                lookupUri += "?graph=" + Uri.EscapeDataString(graphUri);
+                lookupUri += "?graph=" + HttpUtility.UrlEncode(graphUri);
             }
             else
             {
@@ -430,7 +433,7 @@ namespace VDS.RDF.Storage
             String updateUri = this._serviceUri;
             if (graphUri != null && !graphUri.Equals(String.Empty))
             {
-                updateUri += "?graph=" + Uri.EscapeDataString(graphUri);
+                updateUri += "?graph=" + HttpUtility.UrlEncode(graphUri);
             }
             else
             {
@@ -492,7 +495,7 @@ namespace VDS.RDF.Storage
             String deleteUri = this._serviceUri;
             if (graphUri != null && !graphUri.Equals(String.Empty))
             {
-                deleteUri += "?graph=" + Uri.EscapeDataString(graphUri);
+                deleteUri += "?graph=" + HttpUtility.UrlEncode(graphUri);
             }
             else
             {
@@ -579,7 +582,7 @@ namespace VDS.RDF.Storage
             String retrievalUri = this._serviceUri;
             if (graphUri != null && !graphUri.Equals(String.Empty))
             {
-                retrievalUri += "?graph=" + Uri.EscapeDataString(graphUri);
+                retrievalUri += "?graph=" + HttpUtility.UrlEncode(graphUri);
             }
             else
             {
@@ -646,7 +649,7 @@ namespace VDS.RDF.Storage
             String updateUri = this._serviceUri;
             if (graphUri != null && !graphUri.Equals(String.Empty))
             {
-                updateUri += "?graph=" + Uri.EscapeDataString(graphUri);
+                updateUri += "?graph=" + HttpUtility.UrlEncode(graphUri);
             }
             else
             {
@@ -684,7 +687,7 @@ namespace VDS.RDF.Storage
             String deleteUri = this._serviceUri;
             if (graphUri != null && !graphUri.Equals(String.Empty))
             {
-                deleteUri += "?graph=" + Uri.EscapeDataString(graphUri);
+                deleteUri += "?graph=" + HttpUtility.UrlEncode(graphUri);
             }
             else
             {
@@ -740,7 +743,7 @@ namespace VDS.RDF.Storage
             INode rdfType = context.Graph.CreateUriNode(UriFactory.Create(RdfSpecsHelper.RdfType));
             INode rdfsLabel = context.Graph.CreateUriNode(UriFactory.Create(NamespaceMapper.RDFS + "label"));
             INode dnrType = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.PropertyType));
-            INode genericManager = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.ClassGenericManager));
+            INode genericManager = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.ClassStorageProvider));
             INode server = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.PropertyServer));
 
             context.Graph.Assert(new Triple(manager, rdfType, genericManager));

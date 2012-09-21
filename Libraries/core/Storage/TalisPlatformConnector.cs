@@ -40,6 +40,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+#if !NO_WEB
+using System.Web;
+#endif
 using VDS.RDF.Configuration;
 using VDS.RDF.Parsing;
 using VDS.RDF.Parsing.Handlers;
@@ -861,7 +864,7 @@ namespace VDS.RDF.Storage
                 requestUri += "?";
                 foreach (String p in serviceParams.Keys) 
                 {
-                    requestUri += p + "=" + Uri.EscapeDataString(serviceParams[p]) + "&";
+                    requestUri += p + "=" + HttpUtility.UrlEncode(serviceParams[p]) + "&";
                 }
                 requestUri = requestUri.Substring(0, requestUri.Length-1);
             }
@@ -1165,7 +1168,7 @@ namespace VDS.RDF.Storage
             INode rdfType = context.Graph.CreateUriNode(UriFactory.Create(RdfSpecsHelper.RdfType));
             INode rdfsLabel = context.Graph.CreateUriNode(UriFactory.Create(NamespaceMapper.RDFS + "label"));
             INode dnrType = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.PropertyType));
-            INode genericManager = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.ClassGenericManager));
+            INode genericManager = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.ClassStorageProvider));
             INode store = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.PropertyStore));
 
             context.Graph.Assert(new Triple(manager, rdfType, genericManager));

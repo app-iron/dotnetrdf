@@ -1102,7 +1102,7 @@ namespace VDS.RDF.Storage
                     }
                     foreach (String p in requestParams.Keys)
                     {
-                        requestUri += p + "=" + Uri.EscapeDataString(requestParams[p]) + "&";
+                        requestUri += p + "=" + HttpUtility.UrlEncode(requestParams[p]) + "&";
                     }
                     requestUri = requestUri.Substring(0, requestUri.Length - 1);
                 }
@@ -1152,7 +1152,7 @@ namespace VDS.RDF.Storage
             INode rdfType = context.Graph.CreateUriNode(UriFactory.Create(RdfSpecsHelper.RdfType));
             INode rdfsLabel = context.Graph.CreateUriNode(UriFactory.Create(NamespaceMapper.RDFS + "label"));
             INode dnrType = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.PropertyType));
-            INode genericManager = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.ClassGenericManager));
+            INode genericManager = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.ClassStorageProvider));
             INode catalog = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.PropertyCatalog));
             INode store = context.Graph.CreateUriNode(UriFactory.Create(ConfigurationLoader.PropertyStore));
 
