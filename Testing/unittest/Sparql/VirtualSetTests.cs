@@ -14,6 +14,31 @@ namespace VDS.RDF.Test.Sparql
     public class VirtualSetTests
     {
         private SparqlQueryParser _parser = new SparqlQueryParser();
+        private NodeFactory _factory = new NodeFactory();
+
+        [TestMethod]
+        public void SparqlVirtualSetHashCodes1()
+        {
+            INode a = this._factory.CreateLiteralNode("a");
+            INode b = this._factory.CreateLiteralNode("b");
+
+            Set x = new Set();
+            x.Add("a", a);
+            Console.WriteLine(x.ToString());
+
+            Set y = new Set();
+            y.Add("b", b);
+            Console.WriteLine(y.ToString());
+
+            Assert.AreNotEqual(x, y);
+            Assert.AreNotEqual(x.GetHashCode(), y.GetHashCode());
+
+            ISet z1 = new VirtualSet(x, y);
+            ISet z2 = new VirtualSet(y, x);
+
+            Assert.AreEqual(z1, z2);
+            Assert.AreEqual(z1.GetHashCode(), z2.GetHashCode());
+        }
 
         [TestMethod]
         public void SparqlVirtualSetSimple1()

@@ -508,30 +508,6 @@ namespace VDS.RDF.Query.Algebra
         }
 
         /// <summary>
-        /// Gets the Hash Code of the Set
-        /// </summary>
-        /// <returns></returns>
-        public override int GetHashCode()
-        {
-            return this.ToString().GetHashCode();
-        }
-
-        /// <summary>
-        /// Gets the String representation of the Set
-        /// </summary>
-        /// <returns></returns>
-        public override string ToString()
-        {
-            StringBuilder output = new StringBuilder();
-            foreach (String v in this.Variables)
-            {
-                if (output.Length > 0) output.Append(" , ");
-                output.Append("?" + v + " = " + this[v].ToSafeString());
-            }
-            return output.ToString();
-        }
-
-        /// <summary>
         /// Gets whether the Set is equal to another set
         /// </summary>
         /// <param name="other">Set to compare with</param>
