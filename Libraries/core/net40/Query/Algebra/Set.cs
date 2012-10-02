@@ -244,21 +244,7 @@ namespace VDS.RDF.Query.Algebra
             //return new VirtualSet(this);
         }
 
-        /// <summary>
-        /// Gets the String representation of the Set
-        /// </summary>
-        /// <returns></returns>
-        public override string ToString()
-        {
-            StringBuilder output = new StringBuilder();
-            foreach (KeyValuePair<String, INode> pair in this._values)
-            {
-                output.Append("?" + pair.Key + " = " + pair.Value.ToSafeString());
-                output.Append(" , ");
-            }
-            if (this._values.Count > 0) output.Remove(output.Length - 3, 3);
-            return output.ToString();
-        }
+
 
         /// <summary>
         /// Gets whether the Set is equal to another set
@@ -269,15 +255,6 @@ namespace VDS.RDF.Query.Algebra
         {
             if (other == null) return false;
             return this._values.All(pair => other.ContainsVariable(pair.Key) && ((pair.Value == null && other[pair.Key] == null) || pair.Value.Equals(other[pair.Key])));
-        }
-
-        /// <summary>
-        /// Gets the Hash Code of the Set
-        /// </summary>
-        /// <returns></returns>
-        public override int GetHashCode()
-        {
-            return this.ToString().GetHashCode();
         }
     }
 
