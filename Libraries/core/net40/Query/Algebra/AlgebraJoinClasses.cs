@@ -661,11 +661,11 @@ namespace VDS.RDF.Query.Algebra
             if (this._lhs is Extend || this._rhs is Extend) initialInput = new IdentityMultiset();
 
             context.InputMultiset = initialInput;
-            BaseMultiset lhsResult = context.Evaluate(this._lhs);//this._lhs.Evaluate(context);
+            BaseMultiset lhsResult = context.Evaluate(this._lhs);
             context.CheckTimeout();
 
             context.InputMultiset = initialInput;
-            BaseMultiset rhsResult = context.Evaluate(this._rhs);//this._rhs.Evaluate(context);
+            BaseMultiset rhsResult = context.Evaluate(this._rhs);
             context.CheckTimeout();
 
             context.OutputMultiset = lhsResult.Union(rhsResult);
