@@ -116,6 +116,11 @@ namespace VDS.RDF.Parsing
         [Test]
         public void ParsingDBPedia()
         {
+            if (!TestConfigManager.GetSettingAsBoolean(TestConfigManager.UseRemoteParsing))
+            {
+                Assert.Inconclusive("Test Config marks Remote Parsing as unavailable, test cannot be run");
+            }
+
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create("http://dbpedia.org/resource/London");
             request.Accept = "application/rdf+xml";
             request.Method = "GET";
@@ -201,6 +206,11 @@ namespace VDS.RDF.Parsing
         [Test]
         public void ParsingUriLoaderDBPedia1()
         {
+            if (!TestConfigManager.GetSettingAsBoolean(TestConfigManager.UseRemoteParsing))
+            {
+                Assert.Inconclusive("Test Config marks Remote Parsing as unavailable, test cannot be run");
+            }
+
             int defaultTimeout = Options.UriLoaderTimeout;
             try
             {
@@ -228,6 +238,11 @@ namespace VDS.RDF.Parsing
         [Test]
         public void ParsingUriLoaderDBPedia2()
         {
+            if (!TestConfigManager.GetSettingAsBoolean(TestConfigManager.UseRemoteParsing))
+            {
+                Assert.Inconclusive("Test Config marks Remote Parsing as unavailable, test cannot be run");
+            }
+
             IGraph g = new Graph();
             UriLoader.Load(g, new Uri("http://de.dbpedia.org/resource/Disillusion"));
 
@@ -240,31 +255,14 @@ namespace VDS.RDF.Parsing
             }
         }
 
-        [Test, ExpectedException(typeof(RdfParseException))]
+        [Test]
         public void ParsingUriLoaderDBPedia3()
         {
-            int defaultTimeout = Options.UriLoaderTimeout;
-            try
+            if (!TestConfigManager.GetSettingAsBoolean(TestConfigManager.UseRemoteParsing))
             {
-                Options.HttpDebugging = true;
-                SetUriLoaderCaching(false);
-                Options.UriLoaderTimeout = 45000;
-
-                Graph g = new Graph();
-                // Expect this to error since DBPedia sends text/plain Content-Type but Turtle like content
-                UriLoader.Load(g, new Uri("http://dbpedia.org/ontology/wikiPageRedirects"));
+                Assert.Inconclusive("Test Config marks Remote Parsing as unavailable, test cannot be run");
             }
-            finally
-            {
-                Options.HttpDebugging = false;
-                SetUriLoaderCaching(true);
-                Options.UriLoaderTimeout = defaultTimeout;
-            }
-        }
 
-        [Test]
-        public void ParsingUriLoaderDBPedia4()
-        {
             int defaultTimeout = Options.UriLoaderTimeout;
             try
             {
